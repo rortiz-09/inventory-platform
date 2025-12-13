@@ -196,22 +196,45 @@ def render_import():
             # First, read without header to detect the header row
             df_raw = pd.read_excel(uploaded_file, engine='openpyxl', header=None, nrows=20)
             
-            # Keywords to detect header row
-            header_keywords = ['IP', 'SERVIDOR', 'SISTEMA OPERATIVO', 'HOSTNAME', 'OS', 'TIPO', 'APLICACIÓN', 'IP INTERNA']
+            # Keywords that typically appear in header rows (more specific)
+            header_keywords = [
+                'IP INTERNA', 'IP PUBLICA', 'HOSTNAME', 'SERVIDOR', 
+                'SISTEMA OPERATIVO', 'TIPO DE SERVIDOR', 'APLICACIÓN', 
+                'BACKUP', 'RESPONSABLE', 'BASE DE DATOS', 'CIUDAD', 'ENCLOSURE'
+            ]
             
             header_row = None
+            best_match = 0
+            best_row = None
+            
             for idx, row in df_raw.iterrows():
+                # Count non-null values in the row
+                non_null_count = sum(1 for v in row.values if pd.notna(v) and str(v).strip())
+                
+                # Skip rows with very few values (likely title/metadata rows)
+                if non_null_count < 5:
+                    continue
+                
+                # Count keyword matches
                 row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
                 matches = sum(1 for kw in header_keywords if kw in row_str)
-                if matches >= 2:  # At least 2 keywords found
-                    header_row = idx
-                    break
+                
+                # Also check for column-like patterns (short text, no long sentences)
+                values = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip()]
+                avg_length = sum(len(v) for v in values) / max(len(values), 1)
+                
+                # Header rows typically have shorter cell values (column names)
+                # and more keyword matches
+                if matches >= 3 and avg_length < 50 and matches > best_match:
+                    best_match = matches
+                    best_row = idx
             
-            if header_row is None:
+            if best_row is not None:
+                header_row = best_row
+                st.info(f"📍 Encabezados detectados en fila {header_row + 1} ({best_match} columnas reconocidas)")
+            else:
                 st.warning("⚠️ No se pudo detectar la fila de encabezados automáticamente. Usando fila 0.")
                 header_row = 0
-            else:
-                st.info(f"📍 Encabezados detectados en fila {header_row + 1}")
             
             # Re-read with correct header
             uploaded_file.seek(0)  # Reset file pointer
