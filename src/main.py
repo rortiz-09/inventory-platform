@@ -177,11 +177,11 @@ def render_import():
     st.markdown("""
         ### Instrucciones
         1. Suba un archivo Excel (.xlsx) con los datos de servidores
-        2. El sistema **detectará automáticamente** la fila de encabezados
+        2. El sistema **leerá todas las hojas** del libro y detectará encabezados automáticamente
         3. Se aplicará normalización de SO y clasificación de red
         4. Revise la vista previa antes de confirmar la importación
         
-        > **Nota:** El sistema busca columnas como "IP", "SERVIDOR", "SISTEMA OPERATIVO" para detectar el encabezado.
+        > **Nota:** El sistema busca columnas como "IP", "SERVIDOR", "SISTEMA OPERATIVO" para detectar el encabezado en cada hoja.
     """)
     
     # File upload
@@ -193,8 +193,17 @@ def render_import():
     
     if uploaded_file:
         try:
-            # First, read without header to detect the header row
-            df_raw = pd.read_excel(uploaded_file, engine='openpyxl', header=None, nrows=20)
+            # ================================================================
+            # MULTI-SHEET EXCEL SUPPORT
+            # Lee todas las hojas del libro Excel y las combina en un solo
+            # DataFrame, añadiendo una columna 'source_sheet' para trazabilidad
+            # ================================================================
+            
+            # Read all sheet names from the workbook
+            excel_file = pd.ExcelFile(uploaded_file, engine='openpyxl')
+            sheet_names = excel_file.sheet_names
+            
+            st.info(f"📚 **{len(sheet_names)} hojas encontradas:** {', '.join(sheet_names)}")
             
             # Keywords that typically appear in header rows (more specific)
             header_keywords = [
@@ -203,53 +212,100 @@ def render_import():
                 'BACKUP', 'RESPONSABLE', 'BASE DE DATOS', 'CIUDAD', 'ENCLOSURE'
             ]
             
-            header_row = None
-            best_match = 0
-            best_row = None
-            
-            for idx, row in df_raw.iterrows():
-                # Count non-null values in the row
-                non_null_count = sum(1 for v in row.values if pd.notna(v) and str(v).strip())
+            # Function to detect header row in a sheet
+            def detect_header_row(df_raw):
+                """
+                Detecta la fila de encabezados buscando filas con:
+                - Al menos 5 celdas no vacías
+                - Al menos 3 keywords reconocidos
+                - Longitud promedio de celda < 50 caracteres
+                """
+                best_match = 0
+                best_row = None
                 
-                # Skip rows with very few values (likely title/metadata rows)
-                if non_null_count < 5:
+                for idx, row in df_raw.iterrows():
+                    # Count non-null values in the row
+                    non_null_count = sum(1 for v in row.values if pd.notna(v) and str(v).strip())
+                    
+                    # Skip rows with very few values (likely title/metadata rows)
+                    if non_null_count < 5:
+                        continue
+                    
+                    # Count keyword matches
+                    row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
+                    matches = sum(1 for kw in header_keywords if kw in row_str)
+                    
+                    # Check for column-like patterns (short text, no long sentences)
+                    values = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip()]
+                    avg_length = sum(len(v) for v in values) / max(len(values), 1)
+                    
+                    # Header rows typically have shorter cell values and more keyword matches
+                    if matches >= 3 and avg_length < 50 and matches > best_match:
+                        best_match = matches
+                        best_row = idx
+                
+                return best_row, best_match
+            
+            # Process each sheet and combine
+            all_dataframes = []
+            sheets_processed = []
+            
+            for sheet_name in sheet_names:
+                try:
+                    # Read first 20 rows to detect header
+                    df_raw = pd.read_excel(
+                        excel_file, 
+                        sheet_name=sheet_name, 
+                        header=None, 
+                        nrows=20
+                    )
+                    
+                    header_row, match_count = detect_header_row(df_raw)
+                    
+                    # Skip sheets without valid header (e.g., "Resumen", "Licencia")
+                    if header_row is None:
+                        logger.info(f"Skipping sheet '{sheet_name}' - no valid header detected")
+                        continue
+                    
+                    # Read the full sheet with detected header
+                    df_sheet = pd.read_excel(
+                        excel_file, 
+                        sheet_name=sheet_name, 
+                        header=header_row
+                    )
+                    
+                    # Clean column names
+                    df_sheet.columns = [str(col).strip() for col in df_sheet.columns]
+                    
+                    # Remove empty rows
+                    df_sheet = df_sheet.dropna(how='all')
+                    
+                    # Add source sheet column for traceability
+                    df_sheet['source_sheet'] = sheet_name
+                    
+                    all_dataframes.append(df_sheet)
+                    sheets_processed.append(f"{sheet_name} ({len(df_sheet)} filas, header fila {header_row + 1})")
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing sheet '{sheet_name}': {e}")
                     continue
-                
-                # Count keyword matches
-                row_str = ' '.join([str(v).upper() for v in row.values if pd.notna(v)])
-                matches = sum(1 for kw in header_keywords if kw in row_str)
-                
-                # Also check for column-like patterns (short text, no long sentences)
-                values = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip()]
-                avg_length = sum(len(v) for v in values) / max(len(values), 1)
-                
-                # Header rows typically have shorter cell values (column names)
-                # and more keyword matches
-                if matches >= 3 and avg_length < 50 and matches > best_match:
-                    best_match = matches
-                    best_row = idx
             
-            if best_row is not None:
-                header_row = best_row
-                st.info(f"📍 Encabezados detectados en fila {header_row + 1} ({best_match} columnas reconocidas)")
-            else:
-                st.warning("⚠️ No se pudo detectar la fila de encabezados automáticamente. Usando fila 0.")
-                header_row = 0
+            # Combine all sheets
+            if not all_dataframes:
+                st.error("❌ No se encontraron hojas con datos válidos de servidores")
+                return
             
-            # Re-read with correct header
-            uploaded_file.seek(0)  # Reset file pointer
-            df = pd.read_excel(uploaded_file, engine='openpyxl', header=header_row)
+            df = pd.concat(all_dataframes, ignore_index=True)
             
-            # Clean column names
-            df.columns = [str(col).strip() for col in df.columns]
+            # Show processing summary
+            st.success(f"✅ **{len(df)} filas totales** de {len(sheets_processed)} hojas procesadas")
             
-            # Remove completely empty rows
-            df = df.dropna(how='all')
+            with st.expander("📋 Detalle de hojas procesadas"):
+                for sheet_info in sheets_processed:
+                    st.caption(f"• {sheet_info}")
             
-            st.success(f"✅ Archivo cargado: {len(df)} filas de datos encontradas")
-            
-            # Show detected columns
-            columns_display = [c for c in df.columns if not c.startswith('Unnamed')]
+            # Show detected columns (excluding source_sheet and Unnamed)
+            columns_display = [c for c in df.columns if not c.startswith('Unnamed') and c != 'source_sheet']
             st.markdown("**Columnas detectadas:**")
             st.code(", ".join(columns_display[:15]) + ("..." if len(columns_display) > 15 else ""))
             
@@ -366,6 +422,9 @@ def render_import():
                             backup_str = safe_get(backup_col) or ''
                             critical = safe_get(critical_col)
                             
+                            # Get source sheet for traceability (from multi-sheet import)
+                            source_sheet = safe_get('source_sheet') or 'default'
+                            
                             # Skip empty rows
                             if not hostname or hostname in ('', 'nan', 'None', 'unknown-'):
                                 continue
@@ -431,6 +490,7 @@ def render_import():
                                 'backup_enabled': backup_enabled,
                                 'health_score': health_result.score,
                                 'health_penalties': '; '.join(health_result.penalties),
+                                'source_sheet': source_sheet,  # Trazabilidad de hoja de origen
                             })
                         except Exception as e:
                             errors.append(f"Fila {idx}: {str(e)}")
@@ -464,7 +524,10 @@ def render_import():
 
 
 def import_to_database(df: pd.DataFrame):
-    """Import processed DataFrame to database."""
+    """
+    Import processed DataFrame to database.
+    Includes source_sheet for traceability when importing from multi-sheet Excel files.
+    """
     conn = get_db()
     user = get_current_user()
     
@@ -472,6 +535,9 @@ def import_to_database(df: pd.DataFrame):
         imported = 0
         
         for _, row in df.iterrows():
+            # Use source_sheet for traceability (format: "excel_import:SheetName")
+            source_file = f"excel_import:{row.get('source_sheet', 'default')}"
+            
             conn.execute("""
                 INSERT INTO servers (
                     hostname_original, ip_address, server_type,
@@ -501,7 +567,7 @@ def import_to_database(df: pd.DataFrame):
                 row.get('health_penalties', ''),
                 datetime.now(),
                 datetime.now(),
-                'excel_import',
+                source_file,  # Includes sheet name for traceability
             ])
             imported += 1
         
