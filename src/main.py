@@ -201,9 +201,57 @@ def render_import():
             
             # Read all sheet names from the workbook
             excel_file = pd.ExcelFile(uploaded_file, engine='openpyxl')
-            sheet_names = excel_file.sheet_names
+            all_sheet_names = excel_file.sheet_names
             
-            st.info(f"📚 **{len(sheet_names)} hojas encontradas:** {', '.join(sheet_names)}")
+            # ================================================================
+            # FILTRADO INTELIGENTE DE HOJAS
+            # - Prioriza hojas con año actual (2025)
+            # - Omite hojas legacy (sin año) si existe versión con año
+            # - Omite hojas de configuración (Resumen, Licencias, Hoja1, etc.)
+            # ================================================================
+            
+            # Sheets to skip (non-data sheets)
+            skip_patterns = ['resumen', 'licencia', 'hoja1', 'config', 'plantilla', 'template']
+            
+            # Filter sheets: prefer "2025" versions, skip non-data sheets
+            filtered_sheets = []
+            locations_with_year = set()  # Track locations that have 2025 version
+            
+            # First pass: identify which locations have 2025 versions
+            for sheet in all_sheet_names:
+                sheet_lower = sheet.lower()
+                if '2025' in sheet:
+                    # Extract location name (e.g., "UIO 2025" -> "UIO")
+                    location = sheet.replace('2025', '').strip()
+                    locations_with_year.add(location.upper())
+            
+            # Second pass: filter sheets
+            for sheet in all_sheet_names:
+                sheet_lower = sheet.lower()
+                
+                # Skip non-data sheets
+                if any(pattern in sheet_lower for pattern in skip_patterns):
+                    logger.info(f"Omitiendo hoja '{sheet}' - hoja de configuración/resumen")
+                    continue
+                
+                # Check if this is a legacy sheet (no year) and a 2025 version exists
+                sheet_upper = sheet.upper().strip()
+                if '2025' not in sheet:
+                    # If there's a 2025 version of this location, skip the legacy one
+                    if sheet_upper in locations_with_year:
+                        logger.info(f"Omitiendo hoja '{sheet}' - existe versión 2025")
+                        continue
+                
+                filtered_sheets.append(sheet)
+            
+            sheet_names = filtered_sheets if filtered_sheets else all_sheet_names
+            
+            # Show what sheets will be processed
+            st.info(f"📚 **{len(all_sheet_names)} hojas en archivo** → **{len(sheet_names)} hojas a procesar:** {', '.join(sheet_names)}")
+            
+            if len(sheet_names) < len(all_sheet_names):
+                skipped = set(all_sheet_names) - set(sheet_names)
+                st.caption(f"⏭️ Omitidas: {', '.join(skipped)}")
             
             # Keywords that typically appear in header rows (more specific)
             header_keywords = [
