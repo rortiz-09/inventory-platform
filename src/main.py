@@ -367,9 +367,11 @@ def render_import():
                 return ''
             
             # Smart column detection
+            # NOTA: Para servidores físicos, IP DEL BLADE es la columna IP alternativa
             detected_mappings = {
                 'hostname': find_column(['SRV VIRTUAL', 'SERVIDOR', 'HOSTNAME', 'HOST', 'NOMBRE'], df.columns),
                 'ip': find_column(['IP INTERNA', 'IP_INTERNA', 'IP ADDRESS', 'DIRECCION IP'], df.columns),
+                'ip_blade': find_column(['IP DEL BLADE', 'IP BLADE', 'IP_BLADE', 'BLADE IP'], df.columns),  # Fallback para físicos
                 'os': find_column(['SISTEMA OPERATIVO', 'OPERATING SYSTEM', 'SO', 'OS'], df.columns),
                 'type': find_column(['TIPO DE SERVIDOR', 'TIPO', 'TYPE', 'VIRTUAL'], df.columns),
                 'owner': find_column(['RESPONSABLE', 'OWNER', 'PERSONA', 'USUARIO', 'DUEÑO'], df.columns),
@@ -393,10 +395,19 @@ def render_import():
                     key='map_hostname'
                 )
                 ip_col = st.selectbox(
-                    "Columna IP", 
+                    "Columna IP (Principal)", 
                     options=col_options,
                     index=col_options.index(detected_mappings['ip']) if detected_mappings['ip'] in col_options else 0,
-                    key='map_ip'
+                    key='map_ip',
+                    help="IP INTERNA para servidores virtuales"
+                )
+                # IP DEL BLADE para servidores físicos
+                ip_blade_col = st.selectbox(
+                    "Columna IP Blade (Alternativa)", 
+                    options=col_options,
+                    index=col_options.index(detected_mappings['ip_blade']) if detected_mappings['ip_blade'] in col_options else 0,
+                    key='map_ip_blade',
+                    help="Se usa si IP Principal está vacía (común en servidores físicos)"
                 )
                 os_col = st.selectbox(
                     "Columna Sistema Operativo", 
@@ -461,8 +472,26 @@ def render_import():
                                     return None
                                 return str(val).strip()
                             
-                            hostname = safe_get(hostname_col) or f"unknown-{idx}"
+                            # ====================================================
+                            # LÓGICA DE IP CON FALLBACK
+                            # 1. Intentar IP INTERNA (para virtuales)
+                            # 2. Si está vacía, usar IP DEL BLADE (para físicos)
+                            # ====================================================
                             ip = safe_get(ip_col)
+                            if not ip and ip_blade_col:
+                                ip = safe_get(ip_blade_col)  # Fallback para servidores físicos
+                            
+                            # ====================================================
+                            # LÓGICA DE HOSTNAME CON FALLBACK
+                            # Si no hay hostname pero sí IP, usar la IP como identificador
+                            # ====================================================
+                            hostname = safe_get(hostname_col)
+                            if not hostname or hostname in ('', 'nan', 'None'):
+                                if ip:
+                                    hostname = ip  # Usar IP como hostname
+                                else:
+                                    hostname = f"unknown-{idx}"
+                            
                             os_string = safe_get(os_col)
                             server_type = (safe_get(type_col) or '').upper()
                             owner = safe_get(owner_col)
@@ -473,9 +502,10 @@ def render_import():
                             # Get source sheet for traceability (from multi-sheet import)
                             source_sheet = safe_get('source_sheet') or 'default'
                             
-                            # Skip empty rows
-                            if not hostname or hostname in ('', 'nan', 'None', 'unknown-'):
-                                continue
+                            # Skip truly empty rows (no hostname AND no IP)
+                            if not hostname or hostname.startswith('unknown-'):
+                                if not ip:
+                                    continue
                             
                             # Skip if hostname looks like a header repeat
                             if any(kw in hostname.upper() for kw in ['SERVIDOR', 'HOSTNAME', 'SERVER']):
@@ -554,17 +584,40 @@ def render_import():
                     if processed_rows:
                         processed_df = pd.DataFrame(processed_rows)
                         st.session_state['processed_import'] = processed_df
-                        
-                        st.success(f"✅ {len(processed_df)} servidores procesados correctamente")
-                        
-                        # Show preview
-                        render_import_preview(processed_df)
-                        
-                        # Import button
-                        if st.button("💾 Confirmar Importación", type="primary"):
-                            import_to_database(processed_df)
+                        st.session_state['import_ready'] = True
+                        st.rerun()  # Rerun para mostrar el botón de confirmación
                     else:
                         st.warning("No se encontraron filas válidas para procesar")
+            
+            # ================================================================
+            # BOTÓN DE CONFIRMACIÓN DE IMPORTACIÓN
+            # Se muestra FUERA del bloque de procesamiento para evitar
+            # que se pierda el estado cuando Streamlit hace rerun
+            # ================================================================
+            if st.session_state.get('import_ready') and 'processed_import' in st.session_state:
+                processed_df = st.session_state['processed_import']
+                
+                st.success(f"✅ {len(processed_df)} servidores listos para importar")
+                
+                # Show preview
+                render_import_preview(processed_df)
+                
+                col_btn1, col_btn2 = st.columns([1, 1])
+                
+                with col_btn1:
+                    if st.button("💾 Confirmar Importación", type="primary", key="confirm_import"):
+                        with st.spinner("Importando a base de datos..."):
+                            import_to_database(processed_df)
+                            st.session_state['import_ready'] = False
+                            del st.session_state['processed_import']
+                            st.rerun()
+                
+                with col_btn2:
+                    if st.button("🗑️ Cancelar", key="cancel_import"):
+                        st.session_state['import_ready'] = False
+                        if 'processed_import' in st.session_state:
+                            del st.session_state['processed_import']
+                        st.rerun()
         
         except Exception as e:
             st.error(f"Error procesando archivo: {e}")
