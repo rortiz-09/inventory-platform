@@ -160,7 +160,7 @@ def render_inventory():
 def render_import():
     """Render the Excel import page."""
     from src.logic.normalizer import normalize_os
-    from src.logic.network_classifier import classify_ip
+    from src.logic.network_classifier import classify_ip, get_canonical_hostname
     from src.logic.lifecycle_engine import get_eol_info
     from src.logic.health_score import calculate_health_score
     
@@ -536,6 +536,17 @@ def render_import():
                             # Parse backup
                             backup_enabled = backup_str.upper() in ('SI', 'SÍ', 'YES', 'TRUE', '1', 'X')
                             
+                            # ====================================================
+                            # NORMALIZACIÓN DE HOSTNAME
+                            # Genera hostname canónico: srv-<ambiente>-<ciudad>-<rol>
+                            # Ejemplo: XTR-SRV-PASMGYE -> srv-prod-gye-pasm
+                            # ====================================================
+                            hostname_canonical = get_canonical_hostname(
+                                original=hostname,
+                                environment=network_info.environment,
+                                city=network_info.city
+                            )
+                            
                             # Calculate health score
                             eol_date = lifecycle.get('eol_date') if lifecycle else None
                             is_eol = lifecycle.get('is_eol', False) if lifecycle else False
@@ -550,7 +561,9 @@ def render_import():
                                 backup_enabled=backup_enabled
                             )
                             
+                            # Hostname canónico va primero para mejor visibilidad
                             processed_rows.append({
+                                'hostname_canonical': hostname_canonical,  # Normalizado primero
                                 'hostname_original': hostname,
                                 'ip_address': ip,
                                 'server_type': server_type,
@@ -641,15 +654,16 @@ def import_to_database(df: pd.DataFrame):
             
             conn.execute("""
                 INSERT INTO servers (
-                    hostname_original, ip_address, server_type,
+                    hostname_original, hostname_canonical, ip_address, server_type,
                     os_original, os_product_key, os_version, os_confidence,
                     environment, city, eol_date, eol_days_remaining,
                     owner, application, critical_system,
                     backup_enabled, health_score, health_penalties,
                     created_at, updated_at, source_file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 row.get('hostname_original'),
+                row.get('hostname_canonical'),  # Hostname normalizado
                 row.get('ip_address'),
                 row.get('server_type'),
                 row.get('os_original'),

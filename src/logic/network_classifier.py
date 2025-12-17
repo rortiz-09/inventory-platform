@@ -166,21 +166,54 @@ class NetworkClassifier:
         return "-".join(parts)
     
     def _extract_role(self, hostname: str) -> Optional[str]:
-        """Try to extract server role from hostname."""
+        """
+        Try to extract server role from hostname.
+        
+        Examples:
+            XTR-SRV-PASMGYE -> pam
+            TVC-SRV-PRIMARYGYE -> primary
+            SRVCLIENTUIO -> client
+        """
         hostname_lower = hostname.lower()
         
-        # Common role patterns
+        # Remove common prefixes and city suffixes
+        prefixes_to_remove = ['xtr-', 'tvc-', 'srv-', 'svr-', 'srv', 'server-', 'server']
+        city_suffixes = ['gye', 'uio', 'quito', 'guayaquil', '-gye', '-uio']
+        
+        cleaned = hostname_lower
+        for prefix in prefixes_to_remove:
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+        
+        for suffix in city_suffixes:
+            if cleaned.endswith(suffix):
+                cleaned = cleaned[:-len(suffix)]
+        
+        # Remove trailing numbers and dashes
+        import re
+        cleaned = re.sub(r'[-_]?\d+$', '', cleaned)
+        cleaned = cleaned.strip('-_')
+        
+        # If we extracted something meaningful (2-15 chars), use it
+        if 2 <= len(cleaned) <= 15 and cleaned.isalpha():
+            return cleaned[:10]  # Max 10 chars
+        
+        # Common role patterns fallback
         role_patterns = {
+            "pam": ["pasm", "pam", "privileged"],
             "db": ["db", "database", "sql", "mysql", "postgres", "oracle", "mongo"],
             "web": ["web", "www", "http", "nginx", "apache", "iis"],
             "app": ["app", "application", "api", "backend"],
             "mail": ["mail", "smtp", "exchange", "mx"],
             "file": ["file", "nas", "storage", "share"],
-            "dc": ["dc", "domain", "ad", "ldap"],
+            "dc": ["dc", "domain", "ad", "ldap", "primary", "secondary"],
             "dns": ["dns", "bind", "ns"],
             "proxy": ["proxy", "haproxy", "lb", "loadbalancer"],
             "monitor": ["monitor", "nagios", "zabbix", "prometheus"],
             "backup": ["backup", "bkp", "veeam"],
+            "vcenter": ["vcenter", "vmware", "esxi", "vsphere"],
+            "citrix": ["citrix", "xenapp", "xendesktop"],
+            "sap": ["sap", "hana", "abap"],
         }
         
         for role, patterns in role_patterns.items():
