@@ -645,46 +645,90 @@ def import_to_database(df: pd.DataFrame):
     conn = get_db()
     user = get_current_user()
     
+    # Helper function to convert NaN to None for DuckDB compatibility
+    def safe_value(val, default=None):
+        """Convert NaN/None to default value for DuckDB."""
+        if val is None:
+            return default
+        if isinstance(val, float) and pd.isna(val):
+            return default
+        return val
+    
     try:
         imported = 0
+        errors = []
         
-        for _, row in df.iterrows():
-            # Use source_sheet for traceability (format: "excel_import:SheetName")
-            source_file = f"excel_import:{row.get('source_sheet', 'default')}"
-            
-            conn.execute("""
-                INSERT INTO servers (
-                    hostname_original, hostname_canonical, ip_address, server_type,
-                    os_original, os_product_key, os_version, os_confidence,
-                    environment, city, eol_date, eol_days_remaining,
-                    owner, application, critical_system,
-                    backup_enabled, health_score, health_penalties,
-                    created_at, updated_at, source_file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                row.get('hostname_original'),
-                row.get('hostname_canonical'),  # Hostname normalizado
-                row.get('ip_address'),
-                row.get('server_type'),
-                row.get('os_original'),
-                row.get('os_product_key'),
-                row.get('os_version'),
-                row.get('os_confidence'),
-                row.get('environment'),
-                row.get('city'),
-                row.get('eol_date'),
-                row.get('eol_days_remaining'),
-                row.get('owner'),
-                row.get('application'),
-                row.get('critical_system'),
-                row.get('backup_enabled', False),
-                row.get('health_score', 100),
-                row.get('health_penalties', ''),
-                datetime.now(),
-                datetime.now(),
-                source_file,  # Includes sheet name for traceability
-            ])
-            imported += 1
+        for idx, row in df.iterrows():
+            try:
+                # Use source_sheet for traceability (format: "excel_import:SheetName")
+                source_file = f"excel_import:{safe_value(row.get('source_sheet'), 'default')}"
+                
+                # Prepare values with NaN handling
+                hostname_original = safe_value(row.get('hostname_original'), 'unknown')
+                hostname_canonical = safe_value(row.get('hostname_canonical'), hostname_original)
+                ip_address = safe_value(row.get('ip_address'))
+                server_type = safe_value(row.get('server_type'), 'DESCONOCIDO')
+                os_original = safe_value(row.get('os_original'))
+                os_product_key = safe_value(row.get('os_product_key'), 'unknown')
+                os_version = safe_value(row.get('os_version'))
+                os_confidence = safe_value(row.get('os_confidence'), 1.0)
+                environment = safe_value(row.get('environment'), 'unknown')
+                city = safe_value(row.get('city'), 'unknown')
+                eol_date = safe_value(row.get('eol_date'))
+                eol_days_remaining = safe_value(row.get('eol_days_remaining'))
+                # Convert to int if not None
+                if eol_days_remaining is not None:
+                    eol_days_remaining = int(eol_days_remaining)
+                owner = safe_value(row.get('owner'))
+                application = safe_value(row.get('application'))
+                critical_system = safe_value(row.get('critical_system'))
+                backup_enabled = bool(safe_value(row.get('backup_enabled'), False))
+                health_score = safe_value(row.get('health_score'), 100)
+                # Convert to int if not None
+                if health_score is not None:
+                    health_score = int(health_score)
+                health_penalties = safe_value(row.get('health_penalties'), '')
+                
+                conn.execute("""
+                    INSERT INTO servers (
+                        hostname_original, hostname_canonical, ip_address, server_type,
+                        os_original, os_product_key, os_version, os_confidence,
+                        environment, city, eol_date, eol_days_remaining,
+                        owner, application, critical_system,
+                        backup_enabled, health_score, health_penalties,
+                        created_at, updated_at, source_file
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [
+                    hostname_original,
+                    hostname_canonical,
+                    ip_address,
+                    server_type,
+                    os_original,
+                    os_product_key,
+                    os_version,
+                    os_confidence,
+                    environment,
+                    city,
+                    eol_date,
+                    eol_days_remaining,
+                    owner,
+                    application,
+                    critical_system,
+                    backup_enabled,
+                    health_score,
+                    health_penalties,
+                    datetime.now(),
+                    datetime.now(),
+                    source_file,
+                ])
+                imported += 1
+            except Exception as e:
+                errors.append(f"Fila {idx}: {str(e)}")
+                logger.warning(f"Error importing row {idx}: {e}")
+                continue
+        
+        if errors:
+            st.warning(f"⚠️ {len(errors)} filas no se pudieron importar")
         
         # Log import
         conn.execute("""
