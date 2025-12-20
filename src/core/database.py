@@ -43,10 +43,19 @@ class Database:
         """Initialize database schema."""
         logger.info(f"Initializing database schema at {DB_PATH}")
         
+        # ================================================================
+        # SEQUENCES FOR AUTO-INCREMENT IDs
+        # DuckDB requires explicit sequences (unlike SQLite's AUTOINCREMENT)
+        # ================================================================
+        self.conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_users_id START 1")
+        self.conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_servers_id START 1")
+        self.conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_lifecycle_id START 1")
+        self.conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_import_id START 1")
+        
         # Users table
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY DEFAULT nextval('seq_users_id'),
                 username VARCHAR UNIQUE NOT NULL,
                 email VARCHAR,
                 password_hash VARCHAR NOT NULL,
@@ -60,7 +69,7 @@ class Database:
         # Servers table
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS servers (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY DEFAULT nextval('seq_servers_id'),
                 hostname_original VARCHAR NOT NULL,
                 hostname_canonical VARCHAR,
                 ip_address VARCHAR,
@@ -96,7 +105,7 @@ class Database:
         # OS Lifecycle Cache table
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS os_lifecycle_cache (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY DEFAULT nextval('seq_lifecycle_id'),
                 product_key VARCHAR NOT NULL,
                 cycle VARCHAR NOT NULL,
                 eol_date DATE,
@@ -112,7 +121,7 @@ class Database:
         # Import history table
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS import_history (
-                id INTEGER PRIMARY KEY,
+                id INTEGER PRIMARY KEY DEFAULT nextval('seq_import_id'),
                 filename VARCHAR NOT NULL,
                 imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 imported_by VARCHAR,
