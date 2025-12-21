@@ -164,6 +164,15 @@ def render_import():
     from src.logic.lifecycle_engine import get_eol_info
     from src.logic.health_score import calculate_health_score
     
+    # ================================================================
+    # INICIALIZAR SESSION STATE
+    # Necesario para evitar KeyError en Streamlit
+    # ================================================================
+    if 'import_ready' not in st.session_state:
+        st.session_state['import_ready'] = False
+    if 'processed_import' not in st.session_state:
+        st.session_state['processed_import'] = None
+    
     page_header(
         "Importar Datos",
         subtitle="Carga de inventario desde Excel",
@@ -607,7 +616,8 @@ def render_import():
             # Se muestra FUERA del bloque de procesamiento para evitar
             # que se pierda el estado cuando Streamlit hace rerun
             # ================================================================
-            if st.session_state.get('import_ready') and 'processed_import' in st.session_state:
+            # Check import_ready AND that processed_import actually has data (is not None)
+            if st.session_state.get('import_ready') and st.session_state.get('processed_import') is not None:
                 processed_df = st.session_state['processed_import']
                 
                 st.success(f"✅ {len(processed_df)} servidores listos para importar")
