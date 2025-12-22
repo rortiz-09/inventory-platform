@@ -41,6 +41,13 @@ def render_server_table(
     
     if 'table_page' not in st.session_state:
         st.session_state.table_page = 1
+        
+    # Ensure current page is valid for the current dataset size
+    # This prevents StreamlitValueAboveMaxError when filters reduce total pages
+    if total_pages > 0 and st.session_state.table_page > total_pages:
+        st.session_state.table_page = total_pages
+    elif total_pages == 0:
+        st.session_state.table_page = 1
     
     # Pagination controls
     col1, col2, col3 = st.columns([1, 2, 1])
