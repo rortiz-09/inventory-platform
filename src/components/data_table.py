@@ -71,6 +71,7 @@ def render_server_table(
     
     # Column selection
     display_columns = [
+        'hostname_canonical', # New primary column
         'hostname_original',
         'ip_address',
         'server_type',
@@ -112,9 +113,15 @@ def render_server_table(
         .server-table tr:hover td {
             background: rgba(59, 130, 246, 0.1);
         }
-        .server-table .hostname {
-            font-weight: 600;
+        .server-table .hostname-canonical {
+            font-weight: 700;
             color: #3b82f6;
+            font-family: monospace;
+            font-size: 0.95em;
+        }
+        .server-table .hostname-original {
+            font-size: 0.8em;
+            color: #64748b;
         }
         .server-table .ip {
             font-family: monospace;
@@ -132,7 +139,8 @@ def render_server_table(
     
     # Build table HTML
     header_labels = {
-        'hostname_original': 'Hostname',
+        'hostname_canonical': 'Hostname (Normalizado)',
+        'hostname_original': 'Original',
         'ip_address': 'IP',
         'server_type': 'Tipo',
         'os_product_key': 'OS',
@@ -153,8 +161,10 @@ def render_server_table(
         for col in available_cols:
             value = row.get(col, '')
             
-            if col == 'hostname_original':
-                cells.append(f'<td class="hostname">{value}</td>')
+            if col == 'hostname_canonical':
+                cells.append(f'<td class="hostname-canonical">{value or "-"}</td>')
+            elif col == 'hostname_original':
+                cells.append(f'<td class="hostname-original">{value}</td>')
             elif col == 'ip_address':
                 cells.append(f'<td class="ip">{value or "-"}</td>')
             elif col == 'health_score':
