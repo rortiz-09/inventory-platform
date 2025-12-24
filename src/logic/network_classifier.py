@@ -176,18 +176,36 @@ class NetworkClassifier:
         """
         hostname_lower = hostname.lower()
         
-        # Remove common prefixes and city suffixes
-        prefixes_to_remove = ['xtr-', 'tvc-', 'srv-', 'svr-', 'srv', 'server-', 'server']
-        city_suffixes = ['gye', 'uio', 'quito', 'guayaquil', '-gye', '-uio']
+        # 1. Bruteforce common prefix removal (recursive)
+        # Handles cases like TVC-SRVG-CTXNS1 -> SRVG-CTXNS1 -> CTXNS1
+        # Prefixes must be followed by a separator or be at start
+        prefixes_to_remove = [
+            'xtr', 'tvc', 'srv', 'svr', 'server', 'srvg', 'svrg', 
+            'pasm', 'primary', 'secondary', 'dr', 'prod', 'dev', 'qa'
+        ]
         
         cleaned = hostname_lower
-        for prefix in prefixes_to_remove:
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):]
         
-        for suffix in city_suffixes:
-            if cleaned.endswith(suffix):
-                cleaned = cleaned[:-len(suffix)]
+        # Iteratively remove prefixes and cities until stable
+        # Example: XTR-SRV-PASMGYE -> SRV-PASMGYE -> PASMGYE -> PASM
+        max_iterations = 5
+        for _ in range(max_iterations):
+            start_len = len(cleaned)
+            
+            # Remove leading non-alphanumeric chars
+            cleaned = cleaned.lstrip('-_0123456789')
+            
+            # Remove environment/location patterns
+            for bad_str in prefixes_to_remove + ['gye', 'uio', 'quito', 'guayaquil']:
+                # Cases: "xtr-", "xtr_", or "xtr" at start
+                if cleaned.startswith(bad_str):
+                    cleaned = cleaned[len(bad_str):]
+                # Cases: ending in "-gye" or just "gye"
+                if cleaned.endswith(bad_str):
+                    cleaned = cleaned[:-len(bad_str)]
+            
+            if len(cleaned) == start_len:
+                break
         
         # Remove trailing numbers and dashes
         import re
