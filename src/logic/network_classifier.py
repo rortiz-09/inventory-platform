@@ -147,11 +147,13 @@ class NetworkClassifier:
         Returns:
             Canonical hostname string
         """
-        if environment == "unknown" or city == "unknown":
-            return original_hostname  # Keep original if can't classify
+        # Default to 'unknown' if not provided, but still normalize the name
+        # User request: "asi diga srvg es srv" -> Force normalization
+        env_str = environment[:4] if environment != "unknown" else "unk"
+        city_str = city[:3] if city != "unknown" else "unk"
         
         # Build canonical name
-        parts = ["srv", environment[:4], city[:3]]
+        parts = ["srv", env_str, city_str]
         
         if role:
             # Clean role name
@@ -162,6 +164,9 @@ class NetworkClassifier:
             role_guess = self._extract_role(original_hostname)
             if role_guess:
                 parts.append(role_guess)
+            else:
+                # If we really can't extract a role, use a sanitized version of original
+                parts.append(original_hostname.lower()[:10])
         
         return "-".join(parts)
     
