@@ -71,14 +71,18 @@ def render_server_table(
     
     # Column selection
     display_columns = [
-        'hostname_canonical', # New primary column
+        'hostname_canonical',
         'hostname_original',
         'ip_address',
+        'application',          # NEW
+        'critical_system',      # NEW
         'server_type',
         'os_product_key',
         'os_version',
         'environment',
         'city',
+        'backup_enabled',       # NEW
+        'eol_date',             # NEW
         'health_score',
         'owner',
     ]
@@ -109,6 +113,7 @@ def render_server_table(
             padding: 0.75rem;
             border-bottom: 1px solid #1e293b;
             color: #e2e8f0;
+            vertical-align: middle;
         }
         .server-table tr:hover td {
             background: rgba(59, 130, 246, 0.1);
@@ -134,19 +139,37 @@ def render_server_table(
         .server-table .score.high { color: #f97316; }
         .server-table .score.medium { color: #eab308; }
         .server-table .score.low { color: #22c55e; }
+        
+        /* Badges */
+        .badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .badge.crit { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        .badge.high { background: rgba(249, 115, 22, 0.2); color: #fdba74; }
+        .badge.med { background: rgba(234, 179, 8, 0.2); color: #fde047; }
+        .badge.low { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+        .badge.none { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
         </style>
     """, unsafe_allow_html=True)
     
     # Build table HTML
     header_labels = {
-        'hostname_canonical': 'Hostname (Normalizado)',
+        'hostname_canonical': 'Hostname',
         'hostname_original': 'Original',
         'ip_address': 'IP',
+        'application': 'Aplicación',
+        'critical_system': 'Criticidad',
         'server_type': 'Tipo',
         'os_product_key': 'OS',
         'os_version': 'Versión',
         'environment': 'Ambiente',
         'city': 'Ciudad',
+        'backup_enabled': 'Backup',
+        'eol_date': 'EOL',
         'health_score': 'Score',
         'owner': 'Responsable',
     }
@@ -167,6 +190,17 @@ def render_server_table(
                 cells.append(f'<td class="hostname-original">{value}</td>')
             elif col == 'ip_address':
                 cells.append(f'<td class="ip">{value or "-"}</td>')
+            elif col == 'critical_system':
+                crit_map = {
+                    'critico': 'crit', 'alto': 'high', 'medio': 'med', 'bajo': 'low'
+                }
+                c_class = crit_map.get(str(value).lower(), 'none')
+                cells.append(f'<td><span class="badge {c_class}">{value or "N/A"}</span></td>')
+            elif col == 'backup_enabled':
+                icon = "💾" if value else "⚠️"
+                cells.append(f'<td style="text-align: center;">{icon}</td>')
+            elif col == 'eol_date':
+                cells.append(f'<td style="white-space: nowrap;">{value}</td>')
             elif col == 'health_score':
                 score = int(value) if pd.notna(value) else 0
                 score_class = 'critical' if score < 40 else 'high' if score < 60 else 'medium' if score < 80 else 'low'

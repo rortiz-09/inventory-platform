@@ -149,6 +149,40 @@ def render_inventory():
         st.caption(f"Mostrando {len(filtered_data)} de {len(data)} servidores")
     else:
         filtered_data = data
+        
+    # Export Button (Robust Implementation)
+    col_exp1, col_exp2 = st.columns([0.8, 0.2])
+    with col_exp2:
+        try:
+            import io
+            import pandas as pd
+            from datetime import datetime
+            
+            # Generate Excel in memory to avoid disk write issues/permissions
+            output = io.BytesIO()
+            
+            # Select relevant columns for export (exclude technical IDs if needed, keep all for now)
+            # Sanitizing data: remove illegal characters (optional depending on strictness)
+            
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                filtered_data.to_excel(writer, index=False, sheet_name='Inventario')
+                
+            excel_data = output.getvalue()
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            file_name = f"inventario_servidores_{timestamp}.xlsx"
+            
+            st.download_button(
+                label="📥 Exportar Excel",
+                data=excel_data,
+                file_name=file_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="export_btn"
+            )
+        except Exception as e:
+            st.error(f"Error preparando exportación: {str(e)}")
+            logger.error(f"Export error: {e}")
+
     
     # Data table
     render_server_table(
