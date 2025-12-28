@@ -108,12 +108,22 @@ def render_server_table(
             font-size: 0.75rem;
             letter-spacing: 0.5px;
             border-bottom: 2px solid #334155;
+            white-space: nowrap; /* Prevent headers from wrapping too much */
         }
         .server-table td {
             padding: 0.75rem;
             border-bottom: 1px solid #1e293b;
             color: #e2e8f0;
             vertical-align: middle;
+            white-space: nowrap; /* Keep rows single line for better scroll experience */
+        }
+        .data-table-container {
+            overflow-x: auto;
+            width: 100%;
+            margin-bottom: 1rem;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
         .server-table tr:hover td {
             background: rgba(59, 130, 246, 0.1);
