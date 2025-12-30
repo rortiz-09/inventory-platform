@@ -276,7 +276,7 @@ def metric_card(
     icon_html = f'<span style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block;">{icon}</span>' if icon else ""
     
     st.markdown(f"""
-        <div class="metric-card">
+        <div class="glass-card metric-card">
             {icon_html}
             <div class="metric-value">{value}</div>
             <div class="metric-label">{label}</div>
